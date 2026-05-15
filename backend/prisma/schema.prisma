@@ -1,0 +1,30 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Card {
+  id        Int      @id @default(autoincrement())
+  level     String
+  german    String
+  english   String
+  createdAt DateTime @default(now())
+  videoId   Int?
+  video     Video?   @relation(fields: [videoId], references: [id])
+}
+
+model Video {
+  id        Int      @id @default(autoincrement())
+  youtubeId String   @unique
+  title     String
+  level     String
+  createdAt DateTime @default(now())
+  cards     Card[]
+}
