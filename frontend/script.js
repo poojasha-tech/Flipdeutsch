@@ -31,6 +31,19 @@ const levelMasteredEl = document.getElementById('level-mastered');
 const levelTotalEl = document.getElementById('level-total');
 const levelNameEl  = document.getElementById('level-name');
 const progressFill = document.getElementById('progress-fill');
+// Phase 2 — Live AI refs
+const urlForm     = document.getElementById('submit-url');
+const urlInput    = document.getElementById('url-input');
+const urlLevel    = document.getElementById('url-level');
+const urlSubmit   = document.getElementById('url-submit');
+const submitStatus = document.getElementById('submit-status');
+const wordModal   = document.getElementById('word-modal');
+const modalWord   = document.getElementById('modal-word');
+const modalBody   = document.getElementById('modal-body');
+const modalClose  = document.getElementById('modal-close');
+const translateInput   = document.getElementById('translate-input');
+const translateSubmit  = document.getElementById('translate-submit');
+const translateFeedback = document.getElementById('translate-feedback');
 
 // --- State for the current session ---
 let queue = [];           // working queue (may grow if user re-queues "didn't know" cards)
@@ -108,12 +121,16 @@ function renderCard() {
         return;
     }
     const c = queue[position];
-    germanEl.textContent = c.german;
+    germanEl.innerHTML = tokenizeGerman(c.german);
     englishEl.textContent = c.english;
     progressEl.textContent = `${position + 1} / ${queue.length}`;
     card.classList.remove('flipped');
     ratingEl.classList.add('hidden');
     hintEl.classList.remove('hidden');
+    // Reset translate area
+    translateInput.value = '';
+    translateFeedback.classList.add('hidden');
+    translateFeedback.className = 'hidden';
 
     // Source video link (if the card has a video attached)
     if (c.video) {
@@ -208,6 +225,157 @@ didntBtn.addEventListener('click', () => rate('didnt'));
 restartBtn.addEventListener('click', () => {
     if (levelSelect.value) startSession(levelSelect.value);
 });
+
+// ============================================================
+// Phase 2 — Live AI
+// ============================================================
+
+// Wrap each German "word" in a <span> so we can attach click handlers.
+// Splits on whitespace; keeps punctuation glued to its word (good enough).
+function tokenizeGerman(text) {
+    // Escape HTML to prevent injection, then build clickable spans
+    const escape = (s) => s.replace(/[&<>"']/g, c => ({
+        '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+    })[c]);
+    return text.split(/(\s+)/).map(token => {
+        if (/^\s+$/.test(token)) return token;
+        // Strip surrounding punctuation for the word we look up, keep it for display
+        const clean = token.replace(/^[.,!?;:„""'()\-]+|[.,!?;:„""'()\-]+$/g, '');
+        if (!clean) return escape(token);
+        return `<span class="word" data-word="${escape(clean)}">${escape(token)}</span>`;
+    }).join('');
+}
+
+// Open the word modal and ask /api/explain
+async function explainWord(word) {
+    modalWord.textContent = word;
+    modalBody.innerHTML = '<p class="modal-loading">Asking Gemini… (sending request)</p>';
+    wordModal.classList.remove('hidden');
+    console.log('[explain] click:', word);
+
+    try {
+        const sentence = queue[position]?.german || '';
+        console.log('[explain] sentence:', sentence);
+
+        const res = await fetch('/api/explain', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ word, sentence })
+        });
+        console.log('[explain] status:', res.status);
+        modalBody.innerHTML = `<p class="modal-loading">Got status ${res.status}… reading body…</p>`;
+
+        const text = await res.text();
+        console.log('[explain] body:', text);
+
+        if (!res.ok) {
+            let err = {};
+            try { err = JSON.parse(text); } catch {}
+            throw new Error(err.error || `HTTP ${res.status}`);
+        }
+        const data = JSON.parse(text);
+        modalBody.textContent = data.explanation || '(empty response)';
+    } catch (e) {
+        console.error('[explain] error:', e);
+        modalBody.innerHTML = `<p style="color:#b91c1c"><strong>Error:</strong> ${escapeHtml(e.message)}</p>`;
+    }
+}
+
+// Click anywhere inside the German front face — if it's a word, explain it
+germanEl.addEventListener('click', (e) => {
+    const target = e.target.closest('.word');
+    if (!target) return;
+    e.stopPropagation();   // don't flip the card
+    explainWord(target.dataset.word);
+});
+
+modalClose.addEventListener('click', () => wordModal.classList.add('hidden'));
+wordModal.addEventListener('click', (e) => {
+    if (e.target === wordModal) wordModal.classList.add('hidden');
+});
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') wordModal.classList.add('hidden');
+});
+
+// --- Submit-a-URL form ---
+urlForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const url = urlInput.value.trim();
+    const level = urlLevel.value;
+    if (!url) return;
+
+    submitStatus.textContent = 'Fetching transcript & generating cards… (~10s)';
+    submitStatus.className = '';
+    urlSubmit.disabled = true;
+
+    try {
+        const res = await fetch('/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ youtubeUrl: url, level })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed');
+
+        submitStatus.textContent = `Generated ${data.length} cards — starting session.`;
+        queue = [...data].sort(() => Math.random() - 0.5).slice(0, 10);
+        position = 0;
+        sessionStats = { knew: 0, didnt: 0 };
+        doneEl.classList.add('hidden');
+        emptyMsg.classList.add('hidden');
+        cardStage.classList.remove('hidden');
+        levelSelect.value = level;
+        renderCard();
+        await loadTotals();
+        refreshLevelProgress(level);
+    } catch (err) {
+        submitStatus.textContent = `Error: ${err.message}`;
+        submitStatus.className = 'error';
+    } finally {
+        urlSubmit.disabled = false;
+    }
+});
+
+// --- Translate-and-grade ---
+translateSubmit.addEventListener('click', async () => {
+    const text = translateInput.value.trim();
+    if (!text) return;
+    const german = queue[position]?.german;
+    if (!german) return;
+
+    translateSubmit.disabled = true;
+    translateFeedback.className = '';
+    translateFeedback.classList.remove('hidden');
+    translateFeedback.textContent = 'Grading…';
+
+    try {
+        const res = await fetch('/api/grade', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ german, userTranslation: text })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed');
+
+        translateFeedback.className = data.correct ? 'correct' : 'wrong';
+        translateFeedback.innerHTML = `
+            <div class="grade-label">${data.correct ? '✓ Correct' : '✗ Not quite'}</div>
+            <div>${escapeHtml(data.feedback)}</div>
+            <div class="better"><strong>Reference:</strong> ${escapeHtml(data.betterTranslation)}</div>
+        `;
+    } catch (err) {
+        translateFeedback.className = 'wrong';
+        translateFeedback.textContent = `Error: ${err.message}`;
+    } finally {
+        translateSubmit.disabled = false;
+    }
+});
+
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+        '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+    })[c]);
+}
 
 // --- Init ---
 loadTotals();
