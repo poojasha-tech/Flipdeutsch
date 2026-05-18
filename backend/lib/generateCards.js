@@ -1,5 +1,6 @@
 import { YoutubeTranscript } from "youtube-transcript";
 import { GoogleGenAI } from "@google/genai";
+import prisma from "../prisma/db.js";
 
 const ai = new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY,
@@ -32,12 +33,37 @@ async function generateCards(videoId) {
         });
 
         const cards = JSON.parse(response.text);
-        console.log(`Got ${cards.length} cards:`);
-        console.log(cards);
+
+        const video = await prisma.video.findUnique({
+            where: { youtubeId: videoId }
+        });
+        if (!video) {
+            console.error(`Video with ID ${videoId} not found in the database.`);
+            return;
+        }
+
+        // Wipe existing cards for this video so re-runs don't pile up duplicates
+        await prisma.card.deleteMany({
+            where: { videoId: video.id }
+        });
+
+        // Insert fresh cards — add level + videoId on top of Gemini's { german, english }
+        const result = await prisma.card.createMany({
+            data: cards.map(c => ({
+                level: video.level,
+                german: c.german,
+                english: c.english,
+                videoId: video.id
+            }))
+        });
+
+        console.log(`Saved ${result.count} cards for "${video.title}"`);
     } catch (error) {
         console.error("Error generating cards:", error);
+    } finally {
+        await prisma.$disconnect();
     }
 }
 
-// Example usage with a YouTube video ID
-generateCards("dC6ZGLzdaTs");
+            // Example usage with a YouTube video ID
+            generateCards("dC6ZGLzdaTs");
