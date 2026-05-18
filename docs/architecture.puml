@@ -1,17 +1,13 @@
-' German Flashcards — Architecture Diagrams
+' Flipdeutsch — Architecture Diagrams
 ' Render with: VS Code "PlantUML" extension (jebbs), or paste at https://www.plantuml.com/plantuml
-' File contains 4 separate diagrams — each @startuml/@enduml block renders independently.
-
-
-
-
+' File contains 5 separate diagrams — each @startuml/@enduml block renders independently.
 
 
 
 
 @startuml 01_Architecture
 !theme plain
-title German Flashcards — Component Architecture (Build-Time + Runtime)
+title Flipdeutsch — Component Architecture
 
 skinparam componentStyle rectangle
 skinparam packageStyle rectangle
@@ -21,30 +17,39 @@ actor "Learner\n(Browser)" as user
 
 cloud "External Services" {
   component "YouTube\n(public captions)" as YT
-  component "Google Gemini API\nmodel: gemini-2.5-flash-lite" as Gemini
+  package "Google Gemini API" {
+    component "gemini-2.5-flash-lite\n(offline batch quota)" as GeminiLite
+    component "gemini-2.5-flash\n(live AI quota)" as GeminiFlash
+  }
 }
 
 node "Local Development Machine" {
 
-  package "frontend/   (Task 13)" {
-    component "index.html" as html
-    component "styles.css\n(3D flip animation)" as css
-    component "app.js\n(vanilla JS, fetch API)" as feJS
+  package "frontend/" {
+    component "index.html\n(level picker, card, modal,\nsubmit-URL, translate panel)" as html
+    component "style.css\n(3D flip, progress bar,\nmodal, rating buttons)" as css
+    component "script.js\n(session state, SR,\nTTS, fetch + render)" as feJS
+    database "localStorage\n(scores, streak)" as ls
   }
 
   package "backend/" {
-    component "app.js\n(Express server :3000)\nTask 12" as express
+    component "app.js\n(Express :3000)" as express
 
-    package "backend/lib/   (offline scripts)" {
-      component "fetchTranscript.js\n(Task 8 — isolated test)" as ft
-      component "testGemini.js\n(Task 9 — isolated test)" as tg
-      component "generateCards.js\n(Tasks 10–11 — full pipeline)" as gen
+    package "API routes" {
+      component "GET /api/cards\nGET /api/stats" as readRoutes
+      component "POST /api/generate\nPOST /api/explain\nPOST /api/grade" as liveRoutes
+    }
+
+    package "backend/lib/" {
+      component "fetchTranscript.js\n(test)" as ft
+      component "testGemini.js\n(test)" as tg
+      component "generateCards.js\n(offline pipeline CLI)" as gen
     }
 
     package "backend/prisma/" {
-      component "schema.prisma\n(Video + Card models)" as schema
+      component "schema.prisma\n(Video + Card)" as schema
       component "db.js\n(PrismaClient singleton)" as dbjs
-      component "seedVideos.js\n(Task 7 — seeds Video table)" as seed
+      component "seedVideos.js\n(seed 16 curated videos)" as seed
       database "dev.db\n(SQLite)" as db
     }
   }
@@ -54,21 +59,28 @@ node "Local Development Machine" {
 user --> html : 1. open page
 html ..> css
 html ..> feJS
-user --> feJS : 2. pick level, flip cards
-feJS --> express : 3. GET /api/cards?level=A1.1
-express --> dbjs : 4. prisma.card.findMany
-dbjs --> db : 5. SELECT
-db --> dbjs
-dbjs --> express
-express --> feJS : 6. JSON (10 random cards)
-feJS --> user : 7. render flip cards
+feJS <..> ls : read/write\nratings + streak
+
+user --> feJS : pick level / click / rate / type
+feJS --> readRoutes : GET /api/cards?level=X
+readRoutes --> dbjs
+dbjs --> db
+db --> readRoutes : 10 random + video info
+readRoutes --> feJS : JSON
+feJS --> user : render flip cards
+
+' === Live AI flow ===
+feJS --> liveRoutes : POST /explain | /grade | /generate
+liveRoutes --> GeminiFlash : prompt
+GeminiFlash --> liveRoutes : JSON response
+liveRoutes --> feJS
 
 ' === Build-time / offline flow (developer) ===
 seed --> dbjs : populate Video table
 gen --> YT : fetch transcript
 YT --> gen : caption chunks
-gen --> Gemini : prompt + transcript\n+ JSON schema
-Gemini --> gen : Card[] as JSON
+gen --> GeminiLite : prompt + transcript\n+ JSON schema
+GeminiLite --> gen : Card[] as JSON
 gen --> dbjs : Card.createMany (with videoId FK)
 
 dbjs ..> schema : reads model definitions
@@ -77,112 +89,192 @@ dbjs ..> schema : reads model definitions
 
 
 
-
-
-
-
-
-
-
 @startuml 02_OfflinePipeline
 !theme plain
-title Offline AI Pipeline — generateCards.js (Tasks 10–11)
+title Offline AI Pipeline — generateCards.js (batch generation)
 
 actor "Developer" as dev
 participant "generateCards.js" as script
 participant "youtube-transcript\n(npm pkg)" as ytPkg
 participant "YouTube\n(captions)" as YT
-participant "Google Gemini API" as Gemini
+participant "gemini-2.5-flash-lite" as Gemini
 participant "Prisma Client" as prisma
 database "SQLite\n(dev.db)" as db
 
-dev -> script : node --env-file=.env\nlib/generateCards.js
+dev -> script : node --env-file=.env\nlib/generateCards.js [optional youtubeId]
 
-== 1. Fetch transcript ==
-script -> ytPkg : YoutubeTranscript.fetchTranscript(videoId)
-ytPkg -> YT : HTTPS GET captions
-YT --> ytPkg : caption XML
-ytPkg --> script : [{ text, offset, duration }, ...]
-
-script -> script : transcript.map(e => e.text).join(" ")\n→ one big string
-
-== 2. Generate cards with AI ==
-script -> Gemini : ai.models.generateContent({\n  model,\n  contents: prompt,\n  config: {\n    responseMimeType: "application/json",\n    responseSchema: <Card[]>\n  }\n})
-Gemini -> Gemini : extract sentences,\nfit schema
-Gemini --> script : { text: '[{"german":"...","english":"..."}, ...]' }
-
-script -> script : JSON.parse(response.text)
-
-== 3. Persist to DB ==
-script -> prisma : prisma.video.findUnique({\n  where: { youtubeId }\n})
-prisma -> db : SELECT FROM Video WHERE youtubeId=?
-db --> prisma : Video row
-prisma --> script : video { id, level, title }
-
-script -> prisma : prisma.card.deleteMany({\n  where: { videoId: video.id }\n})
-prisma -> db : DELETE (idempotency)
+== Setup ==
+script -> prisma : prisma.video.findMany()\n(or filter by youtubeId)
+prisma -> db : SELECT
 db --> prisma
+prisma --> script : Video[]
 
-script -> prisma : prisma.card.createMany({\n  data: cards.map(c => ({\n    level, german, english, videoId\n  }))\n})
-prisma -> db : INSERT 10 Card rows
-db --> prisma : { count: 10 }
+loop for each video (sequential, NOT parallel)
+
+  == 1. Fetch transcript ==
+  script -> ytPkg : YoutubeTranscript.fetchTranscript(youtubeId)
+  ytPkg -> YT : HTTPS GET captions
+  YT --> ytPkg : caption XML
+  ytPkg --> script : [{ text, offset, duration }, ...]
+  script -> script : transcript.map(e => e.text).join(" ")
+
+  == 2. Generate cards with AI ==
+  script -> Gemini : generateContent({\n  model: "gemini-2.5-flash-lite",\n  contents: prompt + transcript,\n  config: { responseMimeType, responseSchema }\n})
+  Gemini -> Gemini : fit schema
+  Gemini --> script : { text: '[{"german","english"}, ...]' }
+  script -> script : JSON.parse(response.text)
+
+  == 3. Persist to DB (idempotent) ==
+  script -> prisma : prisma.card.deleteMany({ where: { videoId } })
+  prisma -> db : DELETE
+  script -> prisma : prisma.card.createMany({ data: cards.map(...) })
+  prisma -> db : INSERT n Card rows
+  db --> prisma : { count: n }
+  script --> dev : "Saved n cards for [level] title"
+
+end
+
+note over script
+  Errors caught PER VIDEO — one
+  failure does not kill the batch.
+  CLI arg lets you retry a single
+  video without re-burning quota.
+end note
 
 script -> prisma : prisma.$disconnect()
-script --> dev : "Saved 10 cards for <title>"
 @enduml
-
-
-
-
 
 
 
 
 @startuml 03_RuntimeUserFlow
 !theme plain
-title Runtime User Flow — Picking a Level and Flipping Cards (Tasks 12–13)
+title Runtime User Flow — Studying a Level (with SR, TTS, source links)
 
 actor "Learner" as user
 participant "Browser\n(HTML/CSS/JS)" as browser
-participant "Express\n:3000" as express
+participant "localStorage" as ls
+participant "Express :3000" as express
 participant "Prisma Client" as prisma
-database "SQLite\n(dev.db)" as db
+database "SQLite" as db
 
 user -> browser : open http://localhost:3000
+
+== Boot ==
+browser -> express : GET /api/stats
+express -> prisma : groupBy level, count
+prisma -> db : SELECT level, COUNT(*)\nGROUP BY level
+db --> prisma
+prisma --> express
+express --> browser : [{level, total}, ...]
+browser -> ls : read scores + streak
+browser -> user : header shows streak + mastered count
 
 == Pick a level ==
 user -> browser : select "A1.1"
 browser -> express : GET /api/cards?level=A1.1
-express -> prisma : prisma.card.findMany({\n  where: { level: "A1.1" },\n  take: 10 (random)\n})
-prisma -> db : SELECT … ORDER BY RANDOM() LIMIT 10
-db --> prisma : 10 Card rows
-prisma --> express : Card[]
-express --> browser : 200 OK\n[{ id, german, english, ... }, ...]
+express -> prisma : findMany({ where, include: { video } })
+prisma -> db : SELECT Card JOIN Video
+db --> prisma
+prisma --> express
+express --> browser : Card[] (with video info)
 
-browser -> browser : store cards[],\nset index = 0,\nrender first card (front: german)
+browser -> browser : queue = [...cards]\nposition = 0\nrender()
 
-== Flip + Next loop ==
-loop until user picks a new level
+== Flip + Rate loop ==
+loop until queue exhausted
+  user -> browser : click 🔊
+  browser -> browser : speechSynthesis.speak(de-DE)
+
   user -> browser : click card
-  browser -> browser : flip (CSS rotateY 180°)\nshow english on back
-  user -> browser : click "Next"
-  browser -> browser : index++\nrender cards[index]
+  browser -> browser : .flipped class\n(CSS rotateY)
+  browser -> user : show English back
+
+  alt user knew it
+    user -> browser : click "Knew it"
+    browser -> ls : scores[id] = { rating: "knew", level, lastSeen }
+  else user didn't know
+    user -> browser : click "Didn't know"
+    browser -> ls : scores[id] = { rating: "didnt", ... }
+    browser -> browser : queue.splice(position+4, 0, card)\n(re-queue for later in session)
+  end
+
+  browser -> browser : position++\nrender next card
 end
+
+== Session done ==
+browser -> ls : bump streak (once per day)
+browser -> user : "You knew X of N cards"\nupdate header stats
 @enduml
 
 
 
 
-
-
-
-
-
-
-
-@startuml 04_DataModel
+@startuml 04_LiveAIFlow
 !theme plain
-title Data Model — Prisma Schema (Video + Card)
+title Live AI Endpoints — explain, grade, generate
+
+actor "Learner" as user
+participant "Browser" as browser
+participant "Express :3000" as api
+participant "gemini-2.5-flash" as Gemini
+participant "Prisma" as prisma
+database "SQLite" as db
+participant "YouTube" as YT
+
+== 1. Click a German word → /api/explain ==
+user -> browser : click word "Hund"
+browser -> browser : modal opens, "Asking Gemini…"
+browser -> api : POST /api/explain\n{ word: "Hund", sentence: "Der Hund ist groß." }
+api -> Gemini : generateContent (plain text reply, no markdown)
+Gemini --> api : { text: "..." }
+api --> browser : { explanation }
+browser -> user : modal shows grammar / meaning / usage
+
+== 2. Type a translation → /api/grade ==
+user -> browser : type "The dog is big.", click Check
+browser -> api : POST /api/grade\n{ german, userTranslation }
+api -> Gemini : generateContent\n(responseSchema enforces JSON shape)
+Gemini --> api : { correct, feedback, betterTranslation }
+api --> browser : same JSON
+browser -> user : green/red feedback panel
+
+== 3. Paste a YouTube URL → /api/generate ==
+user -> browser : paste URL, pick level, Generate
+browser -> api : POST /api/generate { youtubeUrl, level }
+api -> api : extractYoutubeId(url)
+api -> prisma : findUnique({ where: { youtubeId } })
+alt video already exists
+  prisma --> api : Video row
+else first time
+  api -> prisma : create Video (title = "User-submitted")
+end
+api -> YT : YoutubeTranscript.fetchTranscript
+YT --> api : transcript
+api -> Gemini : generateContent\n(uses -flash, NOT -flash-lite)
+Gemini --> api : Card[] JSON
+api -> prisma : deleteMany + createMany
+prisma -> db : DELETE / INSERT
+api --> browser : the saved cards (with video info)
+browser -> browser : start session with new cards
+browser -> user : flip cards immediately
+
+note over api, Gemini
+  All three live endpoints use
+  **gemini-2.5-flash** — separate
+  quota bucket from the offline
+  batch script (which uses -flash-lite).
+  parseGeminiError() turns 429 / 503
+  responses into friendly UI messages.
+end note
+@enduml
+
+
+
+
+@startuml 05_DataModel
+!theme plain
+title Data Model — Prisma Schema (Video + Card) + Frontend State
 
 entity "Video" as video {
   *id : Int  <<PK, autoincrement>>
@@ -207,17 +299,41 @@ video ||--o{ card : "1 has many"
 
 note right of card
   videoId is **nullable**.
-  Why? So hand-written or
-  legacy cards can live in
-  the same table without a
-  source video.
+  Hand-written or legacy cards
+  can live in the same table
+  without a source video.
 end note
 
 note right of video
-  Seeded once by
-  seedVideos.js.
-  Cards are AI-generated
-  per video by
-  generateCards.js.
+  Seeded ONCE by seedVideos.js.
+  AI-generated cards attach
+  per video via generateCards.js
+  OR live via /api/generate.
+end note
+
+' Frontend-side state (not in DB)
+package "Browser localStorage" {
+  entity "flipdeutsch:scores" as scores {
+    [cardId] : {
+    --
+      rating : "knew" | "didnt"
+      level : String
+      lastSeen : timestamp
+    }
+  }
+  entity "flipdeutsch:stats" as stats {
+    lastDate : "YYYY-MM-DD"
+    --
+    streak : Int
+  }
+}
+
+card .. scores : "scored by id\n(no FK, just key lookup)"
+
+note bottom of scores
+  Per-card user ratings live here,
+  NOT in the database. No accounts,
+  no server-side user state.
+  Per-browser, ~5MB cap.
 end note
 @enduml
