@@ -14,11 +14,16 @@ body {
     min-height: 100vh;
 }
 
+/* Header */
 header {
-    text-align: center;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
     margin-bottom: 2.5rem;
+    flex-wrap: wrap;
+    gap: 1rem;
 }
-header h1 {
+.brand h1 {
     font-size: 2.5rem;
     color: #d4361c;
     letter-spacing: -0.02em;
@@ -26,11 +31,36 @@ header h1 {
 .tagline {
     color: #666;
     margin-top: 0.25rem;
+    font-size: 0.95rem;
+}
+.stats {
+    display: flex;
+    gap: 1.5rem;
+}
+.stat {
+    text-align: center;
+    background: white;
+    padding: 0.6rem 1rem;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    min-width: 70px;
+}
+.stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #d4361c;
+}
+.stat-label {
+    font-size: 0.75rem;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
 }
 
+/* Level picker */
 .level-picker {
     text-align: center;
-    margin-bottom: 2rem;
+    margin-bottom: 1.5rem;
 }
 .level-picker label {
     margin-right: 0.5rem;
@@ -44,11 +74,34 @@ header h1 {
     background: white;
 }
 
+/* Level progress bar */
+#level-progress {
+    margin-bottom: 1.5rem;
+    text-align: center;
+}
+.progress-text {
+    font-size: 0.85rem;
+    color: #666;
+    margin-bottom: 0.4rem;
+}
+.progress-bar {
+    height: 6px;
+    background: #e5e5ea;
+    border-radius: 3px;
+    overflow: hidden;
+}
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #d4361c, #f97316);
+    width: 0%;
+    transition: width 0.3s ease;
+}
+
 .hidden {
     display: none;
 }
 
-/* Card flip — perspective on the parent, transform on the inner */
+/* Card flip */
 #card-stage {
     perspective: 1200px;
 }
@@ -61,7 +114,6 @@ header h1 {
     transition: transform 0.6s;
     cursor: pointer;
 }
-
 .card.flipped {
     transform: rotateY(180deg);
 }
@@ -76,15 +128,38 @@ header h1 {
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 2rem;
+    padding: 2.5rem;
     text-align: center;
     font-size: 1.5rem;
     line-height: 1.4;
 }
-
 .card-back {
     background: #fff8e1;
     transform: rotateY(180deg);
+}
+
+/* TTS button on front */
+.tts-btn {
+    position: absolute;
+    top: 0.8rem;
+    right: 0.8rem;
+    background: #f5f5f7;
+    border: none;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 1.1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, transform 0.1s;
+}
+.tts-btn:hover {
+    background: #e5e5ea;
+}
+.tts-btn:active {
+    transform: scale(0.92);
 }
 
 .hint {
@@ -94,36 +169,95 @@ header h1 {
     margin-top: 0.75rem;
 }
 
-.controls {
-    margin-top: 1.5rem;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+.source {
+    text-align: center;
+    color: #666;
+    font-size: 0.8rem;
+    margin-top: 0.5rem;
+    min-height: 1.2em;
+}
+.source a {
+    color: #d4361c;
+    text-decoration: none;
+}
+.source a:hover {
+    text-decoration: underline;
 }
 
+/* Rating buttons */
+.rating {
+    margin-top: 1.5rem;
+    display: flex;
+    gap: 0.75rem;
+}
+.rating button {
+    flex: 1;
+    padding: 0.85rem;
+    font-size: 1rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: filter 0.15s, transform 0.1s;
+}
+.rating button:active {
+    transform: scale(0.98);
+}
+.btn-didnt {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+.btn-didnt:hover {
+    filter: brightness(0.96);
+}
+.btn-knew {
+    background: #dcfce7;
+    color: #15803d;
+}
+.btn-knew:hover {
+    filter: brightness(0.96);
+}
+
+/* Controls */
+.controls {
+    margin-top: 1rem;
+    text-align: center;
+}
 #progress {
     color: #666;
     font-size: 0.9rem;
 }
 
-#next {
+/* Done state */
+#done {
+    text-align: center;
+    background: white;
+    padding: 2.5rem 2rem;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+}
+#done h2 {
+    color: #d4361c;
+    margin-bottom: 0.75rem;
+}
+#done p {
+    color: #555;
+    margin-bottom: 1.5rem;
+}
+#done button {
     background: #d4361c;
     color: white;
     border: none;
-    padding: 0.7rem 1.5rem;
+    padding: 0.7rem 1.6rem;
     font-size: 1rem;
     border-radius: 6px;
     cursor: pointer;
-    transition: background 0.2s;
 }
-#next:hover {
+#done button:hover {
     background: #b32d18;
 }
-#next:disabled {
-    background: #ccc;
-    cursor: not-allowed;
-}
 
+/* Empty state */
 #empty {
     text-align: center;
     margin-top: 2rem;

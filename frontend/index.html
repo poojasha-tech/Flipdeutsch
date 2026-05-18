@@ -8,8 +8,20 @@
 </head>
 <body>
     <header>
-        <h1>Flipdeutsch</h1>
-        <p class="tagline">Learn German, one sentence at a time.</p>
+        <div class="brand">
+            <h1>Flipdeutsch</h1>
+            <p class="tagline">Learn German, one sentence at a time.</p>
+        </div>
+        <div class="stats" id="stats">
+            <div class="stat">
+                <div class="stat-value" id="streak">0</div>
+                <div class="stat-label">day streak</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="mastered">0</div>
+                <div class="stat-label">mastered</div>
+            </div>
+        </div>
     </header>
 
     <main>
@@ -28,21 +40,42 @@
             </select>
         </div>
 
+        <div id="level-progress" class="hidden">
+            <div class="progress-text">
+                <span id="level-mastered">0</span> / <span id="level-total">0</span> mastered at <span id="level-name"></span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+        </div>
+
         <div id="card-stage" class="hidden">
             <div class="card" id="card">
                 <div class="card-face card-front">
+                    <button class="tts-btn" id="tts-btn" title="Listen" aria-label="Listen">🔊</button>
                     <p id="german"></p>
                 </div>
                 <div class="card-face card-back">
                     <p id="english"></p>
                 </div>
             </div>
-            <p class="hint">Click the card to flip</p>
+            <p class="hint" id="hint">Click the card to flip</p>
+            <p class="source" id="source"></p>
+
+            <div class="rating hidden" id="rating">
+                <button class="btn-didnt" id="didnt-know">Didn't know</button>
+                <button class="btn-knew" id="knew-it">Knew it</button>
+            </div>
 
             <div class="controls">
                 <span id="progress"></span>
-                <button id="next">Next →</button>
             </div>
+        </div>
+
+        <div id="done" class="hidden">
+            <h2>Session complete</h2>
+            <p id="done-summary"></p>
+            <button id="restart">Study again</button>
         </div>
 
         <p id="empty" class="hidden">No cards yet for this level. Run <code>generateCards.js</code> for a video at this level.</p>
